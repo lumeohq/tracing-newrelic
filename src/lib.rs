@@ -106,10 +106,10 @@ mod layer;
 mod types;
 mod utils;
 
-pub use api::{Api, ApiEndpoint};
+pub use api::{Api, BatchMode, ApiEndpoint};
 pub use layer::NewRelicLayer;
 
-use std::thread;
+use std::{thread, future::{pending, Future}, pin::Pin};
 use tokio::runtime;
 use tokio::sync::mpsc::unbounded_channel;
 use types::{NewrLogs, NewrSpans};
@@ -132,8 +132,23 @@ pub fn layer(api: impl Into<Api>) -> NewRelicLayer {
             };
 
             rt.block_on(async move {
-                while let Some((logs, spans)) = rx.recv().await {
-                    api.push(logs, spans).await
+                let mut timeout_future: Pin<Box<dyn Future<Output = ()>>> = Box::pin(pending());
+                loop {
+                    tokio::select! {
+                        logs_and_spans = rx.recv() => {
+                            if let Some((logs, spans)) = logs_and_spans {
+                                if let Some(future) = api.push(logs, spans).await {
+                                    timeout_future = Box::pin(future);
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        () = &mut timeout_future => {
+                            timeout_future = Box::pin(pending());
+                            api.flush().await
+                        }
+                    }
                 }
 
                 api.flush().await;

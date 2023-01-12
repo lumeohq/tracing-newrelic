@@ -5,9 +5,9 @@ use reqwest::{
     Client, RequestBuilder,
 };
 use serde::Serialize;
-use std::cmp::max;
+use std::{cmp::max, future::Future};
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::time::{sleep, Instant};
 
 use super::types::{NewrLogs, NewrSpans};
 
@@ -38,15 +38,14 @@ pub struct Api {
     pub key: String,
     /// Http Client
     pub client: Client,
-    /// Batch request size
-    pub batch_size: usize,
 
+    batch_tracker: BatchTracker,
     logs_queue: Vec<NewrLogs>,
     spans_queue: Vec<NewrSpans>,
 }
 
 impl Api {
-    pub(crate) async fn push(&mut self, logs: NewrLogs, traces: NewrSpans) {
+    pub(crate) async fn push(&mut self, logs: NewrLogs, traces: NewrSpans) -> Option<impl Future<Output = ()>> {
         log::debug!(
             "pushing logs and traces, logs_queue_len={}, spans_queue_len={}",
             self.logs_queue.len(),
@@ -56,12 +55,17 @@ impl Api {
         self.logs_queue.push(logs);
         self.spans_queue.push(traces);
 
-        if self.logs_queue.len() >= self.batch_size || self.spans_queue.len() >= self.batch_size {
-            self.flush().await
+        self.batch_tracker.add_new_items(2);
+        if self.batch_tracker.is_complete() {
+            self.flush().await;
+            None
+        } else {
+            self.batch_tracker.timeout_future()
         }
     }
 
     pub(crate) async fn flush(&mut self) {
+        self.batch_tracker.reset();
         if self.logs_queue.is_empty() && self.spans_queue.is_empty() {
             return;
         }
@@ -108,7 +112,7 @@ impl Default for Api {
             trace_endpoint: ApiEndpoint::default(),
             key: String::new(),
             client: Client::new(),
-            batch_size: 10,
+            batch_tracker: BatchTracker::new(BatchMode::default()),
             logs_queue: Vec::with_capacity(10),
             spans_queue: Vec::with_capacity(10),
         }
@@ -140,6 +144,73 @@ impl From<(String, ApiEndpoint)> for Api {
             log_endpoint: t.1.clone(),
             trace_endpoint: t.1,
             ..Default::default()
+        }
+    }
+}
+
+/// Specifies batching strategy to be used when gathering tracing data.
+pub enum BatchMode {
+    /// A time-based batch is considered complete when:
+    ///     1. It times out (the time window starting at the most recent item expires), or
+    ///     2. It reaches the max item threshold.
+    Time {
+        /// The minimum time delay, starting since collecting the most recent item. 
+        timeout: Duration,
+        /// Maximum batch size.
+        max_items: usize,
+    },
+
+    /// Size-based batches are considered complete when they reach the given minimum size threshold.
+    Size {
+        /// Minimum required batch size.
+        min_items: usize
+    },
+}
+
+impl Default for BatchMode {
+    fn default() -> Self {
+        Self::Time {
+            timeout: Duration::from_secs(20),
+            max_items: 1000,
+        }
+    }
+}
+
+struct BatchTracker {
+    mode: BatchMode,
+    most_recent_update: Instant,
+    current_item_count: usize,
+}
+
+impl BatchTracker {
+    fn new(mode: BatchMode) -> Self {
+        Self { mode, most_recent_update: Instant::now(), current_item_count: 0 }
+    }
+    
+    fn add_new_items(&mut self, items: usize) {
+        self.most_recent_update = Instant::now();
+        self.current_item_count += items;
+    }
+
+    fn is_complete(&self) -> bool {
+        match self.mode {
+            BatchMode::Time { timeout, max_items } => {
+                self.current_item_count >= max_items || (Instant::now() - self.most_recent_update) >= timeout
+            },
+            BatchMode::Size { min_items } => {
+                self.current_item_count >= min_items
+            },
+        }
+    }
+
+    fn reset(&mut self) {
+        self.current_item_count = 0;
+    }
+
+    fn timeout_future(&self) -> Option<impl Future<Output = ()>> {
+        match self.mode {
+            BatchMode::Time { timeout, .. } => Some(sleep(timeout)),
+            BatchMode::Size { .. } => None,
         }
     }
 }
