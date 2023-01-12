@@ -45,6 +45,16 @@ pub struct Api {
 }
 
 impl Api {
+    pub(crate) fn new(key: String, batch_mode: BatchMode, endpoint: ApiEndpoint) -> Self {
+        Self {
+            log_endpoint: endpoint.clone(),
+            trace_endpoint: endpoint,
+            key,
+            batch_tracker: BatchTracker::new(batch_mode),
+            ..Default::default()
+        }
+    }
+
     pub(crate) async fn push(&mut self, logs: NewrLogs, traces: NewrSpans) -> Option<impl Future<Output = ()>> {
         log::debug!(
             "pushing logs and traces, logs_queue_len={}, spans_queue_len={}",
@@ -115,35 +125,6 @@ impl Default for Api {
             batch_tracker: BatchTracker::new(BatchMode::default()),
             logs_queue: Vec::with_capacity(10),
             spans_queue: Vec::with_capacity(10),
-        }
-    }
-}
-
-impl From<String> for Api {
-    fn from(key: String) -> Self {
-        Api {
-            key,
-            ..Default::default()
-        }
-    }
-}
-
-impl From<&str> for Api {
-    fn from(key: &str) -> Self {
-        Api {
-            key: key.to_string(),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<(String, ApiEndpoint)> for Api {
-    fn from(t: (String, ApiEndpoint)) -> Self {
-        Api {
-            key: t.0,
-            log_endpoint: t.1.clone(),
-            trace_endpoint: t.1,
-            ..Default::default()
         }
     }
 }

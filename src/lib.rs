@@ -115,8 +115,8 @@ use tokio::sync::mpsc::unbounded_channel;
 use types::{NewrLogs, NewrSpans};
 
 /// Create a new NewRelic layer and spawn a thread for sending data
-pub fn layer(api: impl Into<Api>) -> NewRelicLayer {
-    let mut api = api.into();
+pub fn layer(newrelic_api_key: impl AsRef<str>, batch_mode: BatchMode, endpoint: ApiEndpoint) -> NewRelicLayer {
+    let mut api = Api::new(newrelic_api_key.as_ref().to_string(), batch_mode, endpoint);
 
     let (tx, mut rx) = unbounded_channel::<(NewrLogs, NewrSpans)>();
 
