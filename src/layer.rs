@@ -181,8 +181,9 @@ where
 
 fn log_span<S: Subscriber + for<'a> LookupSpan<'a>>(span: &SpanRef<'_, S>, context: &'static str) {
     let name = span.name();
-    if name == "upload_attachments_and_deploy" {
-        eprintln!("{name}: {context}, id: {:?}", span.id())
+    if name == "upload_attachments_and_deploy" || name == "run" || name == "upload_file" {
+        let now = Utc::now();
+        eprintln!("{now} {name}: {context}, id: {:?}", span.id())
     }
 }
 
