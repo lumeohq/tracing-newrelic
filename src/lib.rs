@@ -134,6 +134,7 @@ pub fn layer(newrelic_api_key: impl AsRef<str>, batch_mode: BatchMode, endpoint:
             rt.block_on(async move {
                 let mut timeout_future: Pin<Box<dyn Future<Output = ()>>> = Box::pin(pending());
                 loop {
+                    log::debug!("loop!");
                     tokio::select! {
                         logs_and_spans = rx.recv() => {
                             if let Some((logs, spans)) = logs_and_spans {
@@ -145,6 +146,7 @@ pub fn layer(newrelic_api_key: impl AsRef<str>, batch_mode: BatchMode, endpoint:
                             }
                         }
                         () = &mut timeout_future => {
+                            log::info!("timeout_future");
                             timeout_future = Box::pin(pending());
                             api.flush().await
                         }

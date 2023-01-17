@@ -45,6 +45,7 @@ where
 
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
         let span = ctx.span(id).expect("span not found");
+        log::info!("span recorded: {}", span.name());
         let mut extensions = span.extensions_mut();
 
         if let Some(nr_span) = extensions.get_mut::<NewrSpan>() {
@@ -91,6 +92,7 @@ where
 
     fn on_close(&self, id: Id, ctx: Context<'_, S>) {
         let span = ctx.span(&id).expect("span not found");
+        log::info!("span closed: {}", span.name());
         let mut extensions = span.extensions_mut();
 
         if let Some(mut nr_span) = extensions.remove::<NewrSpan>() {
@@ -169,6 +171,14 @@ where
                 ));
             }
         }
+    }
+
+    fn on_enter(&self, id: &tracing_core::span::Id, ctx: Context<'_, S>) {
+        log::info!("entered {}", ctx.span(&id).expect("span not found").name());
+    }
+
+    fn on_exit(&self, id: &tracing_core::span::Id, ctx: Context<'_, S>) {
+        log::info!("exited {}", ctx.span(&id).expect("span not found").name());
     }
 }
 

@@ -67,9 +67,11 @@ impl Api {
 
         self.batch_tracker.add_new_items(2);
         if self.batch_tracker.is_complete() {
+            log::info!("Batch is complete, flushing immediately.");
             self.flush().await;
             None
         } else {
+            log::info!("Batch is incomplete, awaiting more data.");
             self.batch_tracker.timeout_future()
         }
     }
@@ -80,7 +82,7 @@ impl Api {
             return;
         }
 
-        log::debug!(
+        log::info!(
             "flushing logs and traces, logs_queue_len={}, spans_queue_len={}",
             self.logs_queue.len(),
             self.spans_queue.len(),
@@ -93,9 +95,15 @@ impl Api {
             use ServiceStatus::*;
 
             match join!(logs_service.send(self), trace_service.send(self)) {
-                (Timeount(d1), Timeount(d2)) => sleep(max(d1, d2)).await,
+                (Timeount(d1), Timeount(d2)) => {
+                    log::info!("Sleeping for max({:?}, {:?})", d1, d2);
+                    sleep(max(d1, d2)).await
+                },
 
-                (Timeount(d), _) | (_, Timeount(d)) => sleep(d).await,
+                (Timeount(d), _) | (_, Timeount(d)) => {
+                    log::info!("Sleeping for {:?}", d);
+                    sleep(d).await
+                },
 
                 (Finished, Finished) => {
                     log::info!(
@@ -169,6 +177,7 @@ impl BatchTracker {
     }
     
     fn add_new_items(&mut self, items: usize) {
+        log::info!("{} items added to batch, current size: {}, last updated: {:?}", items, self.current_item_count, self.most_recent_update);
         self.most_recent_update = Instant::now();
         self.current_item_count += items;
     }
@@ -176,7 +185,9 @@ impl BatchTracker {
     fn is_complete(&self) -> bool {
         match self.mode {
             BatchMode::Time { timeout, max_items } => {
-                self.current_item_count >= max_items || (Instant::now() - self.most_recent_update) >= timeout
+                let res = self.current_item_count >= max_items || (Instant::now() - self.most_recent_update) >= timeout;
+                log::info!("Batch is {}", if res { "complete" } else { "not complete"});
+                res
             },
             BatchMode::Size { min_items } => {
                 self.current_item_count >= min_items
@@ -185,6 +196,7 @@ impl BatchTracker {
     }
 
     fn reset(&mut self) {
+        log::info!("Resetting batch.");
         self.current_item_count = 0;
     }
 
