@@ -1,9 +1,11 @@
 use std::thread::JoinHandle;
 
 use tokio::sync::mpsc::UnboundedSender;
+use tracing::info;
 use tracing_core::span::{Attributes, Id, Record};
 use tracing_core::{Event, Subscriber};
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
+use tracing_subscriber::registry::SpanRef;
 
 use crate::types::{NewrAttributes, NewrCommon, NewrLog, NewrLogs, NewrSpan, NewrSpans, Value};
 use crate::utils::next_trace_id;
@@ -22,6 +24,7 @@ where
 {
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
         let span = ctx.span(id).expect("span not found");
+        log_span(&span, "on_new_span");
         let metadata = span.metadata();
 
         // create a new span
@@ -45,6 +48,7 @@ where
 
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
         let span = ctx.span(id).expect("span not found");
+        log_span(&span, "on_record");
         let mut extensions = span.extensions_mut();
 
         if let Some(nr_span) = extensions.get_mut::<NewrSpan>() {
@@ -90,7 +94,9 @@ where
     }
 
     fn on_close(&self, id: Id, ctx: Context<'_, S>) {
+        eprintln!("on_close: id: {id:?}: ");
         let span = ctx.span(&id).expect("span not found");
+        log_span(&span, "on_close");
         let mut extensions = span.extensions_mut();
 
         if let Some(mut nr_span) = extensions.remove::<NewrSpan>() {
@@ -169,6 +175,13 @@ where
                 ));
             }
         }
+    }
+}
+
+fn log_span<S: Subscriber + for<'a> LookupSpan<'a>>(span: &SpanRef<'_, S>, context: &'static str) {
+    let name = span.name();
+    if name == "upload_attachments_and_deploy" {
+        eprintln!("{name}: {context}, id: {:?}", span.id())
     }
 }
 
