@@ -150,18 +150,18 @@ impl NewrLog {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct NewrCommon {
     pub attributes: NewrAttributes,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct NewrLogs {
     pub logs: Vec<NewrLog>,
     pub common: NewrCommon,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct NewrSpans {
     pub spans: Vec<NewrSpan>,
     pub common: NewrCommon,

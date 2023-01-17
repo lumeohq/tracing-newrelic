@@ -6,7 +6,9 @@ use reqwest::{
 };
 use serde::Serialize;
 use std::cmp::max;
+use std::fmt::Debug;
 use std::time::Duration;
+use tracing::info;
 use tokio::time::sleep;
 
 use super::types::{NewrLogs, NewrSpans};
@@ -146,6 +148,7 @@ impl From<(String, ApiEndpoint)> for Api {
 
 enum ServiceStatus {
     // Need to wait before next sending
+    #[allow(unused)]
     Timeount(Duration),
 
     // Have remaining data to be sent
@@ -159,6 +162,7 @@ struct Service<'a, T: Sendable> {
     data: &'a [T],
     // number of items to send each request,
     batch_len: usize,
+    #[allow(unused)]
     retry_count: u32,
 }
 
@@ -171,110 +175,27 @@ impl<'a, T: Sendable> Service<'a, T> {
         }
     }
 
-    async fn send(&mut self, api: &Api) -> ServiceStatus {
+    async fn send(&mut self, _api: &Api) -> ServiceStatus {
         // nothing to send
         if self.data.is_empty() {
+            info!("Nothing to send");
             return ServiceStatus::Finished;
         }
 
         let (left, right) = self.data.split_at(self.batch_len);
+        info!(data = ?left, "Sending data");
 
-        let res = T::build_request(left, api).send().await.unwrap();
+        self.data = right;
 
-        let status = res.status().as_u16();
-
-        // https://docs.newrelic.com/docs/distributed-tracing/trace-api/trace-api-general-requirements-limits#status-codes
-        match status {
-            // success
-            200..=299 => {
-                log::debug!(
-                    "recevied {} response, sent={}, remaining={}",
-                    status,
-                    left.len(),
-                    right.len(),
-                );
-
-                // reset retry_count
-                self.retry_count = 0;
-
-                self.data = right;
-
-                if self.data.is_empty() {
-                    ServiceStatus::Finished
-                } else {
-                    ServiceStatus::Remaining
-                }
-            }
-
-            400 | 401 | 403 | 404 | 405 | 409 | 410 | 411 => {
-                log::info!("recevied {} response", status);
-
-                ServiceStatus::Finished
-            }
-
-            // 	The payload was too big.
-            413 => {
-                log::debug!("recevied 413 response, splitting payload");
-
-                if self.batch_len == 1 {
-                    log::info!("dropping paylod");
-
-                    ServiceStatus::Finished
-                } else {
-                    self.batch_len %= 2;
-                    ServiceStatus::Remaining
-                }
-            }
-
-            // The request rate quota has been exceeded.
-            429 => {
-                let seconds = res
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|val| val.to_str().ok())
-                    .and_then(|val| val.parse::<u64>().ok());
-
-                match seconds {
-                    Some(s) => {
-                        log::debug!("recevied 429 response, retry after {} seconds", s);
-                        ServiceStatus::Timeount(Duration::from_secs(s))
-                    }
-                    None => {
-                        log::debug!("recevied 429 response, but `retry-after` not persent");
-                        ServiceStatus::Finished
-                    }
-                }
-            }
-
-            _ => {
-                if self.retry_count == 0 {
-                    log::info!(
-                        "recevied {} response, retry immediately, retry_count={}",
-                        status,
-                        self.retry_count,
-                    );
-                    self.retry_count += 1;
-                    ServiceStatus::Timeount(Duration::from_secs(0))
-                } else if self.retry_count <= 5 {
-                    let s = 2_u64.pow(self.retry_count - 1_u32); // 2^n
-                    log::info!(
-                        "recevied {} response, retry after {} seconds, retry_count={}",
-                        status,
-                        s,
-                        self.retry_count,
-                    );
-                    self.retry_count += 1;
-                    ServiceStatus::Timeount(Duration::from_secs(s))
-                } else {
-                    log::info!("recevied {} response, reached max retry count", status);
-                    ServiceStatus::Finished
-                }
-            }
+        if self.data.is_empty() {
+            ServiceStatus::Finished
+        } else {
+            ServiceStatus::Remaining
         }
     }
 }
 
-trait Sendable {
+trait Sendable: Debug {
     fn build_request(data: &[Self], api: &Api) -> RequestBuilder
     where
         Self: Sized;
