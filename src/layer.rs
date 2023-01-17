@@ -1,7 +1,7 @@
 use std::thread::JoinHandle;
 
+use chrono::Utc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::info;
 use tracing_core::span::{Attributes, Id, Record};
 use tracing_core::{Event, Subscriber};
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
@@ -94,8 +94,9 @@ where
     }
 
     fn on_close(&self, id: Id, ctx: Context<'_, S>) {
-        eprintln!("on_close: id: {id:?}: ");
         let span = ctx.span(&id).expect("span not found");
+        let now = Utc::now();
+        eprintln!("{now} on_close: id: {id:?}, name: {}", span.name());
         log_span(&span, "on_close");
         let mut extensions = span.extensions_mut();
 
